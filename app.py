@@ -919,6 +919,80 @@ pre {
     color: #777;
     margin: 30px;
 }
+.camera-row {
+    display: flex;
+    gap: 10px;
+    margin-top: 14px;
+    flex-wrap: wrap;
+}
+.camera-row button {
+    margin-top: 0;
+    width: auto;
+    flex: 1;
+    min-width: 140px;
+    background: #34a853;
+}
+.camera-row button:hover {
+    background: #2a8a44;
+}
+.camera-row .secondary {
+    background: #6b7280;
+}
+.camera-row .secondary:hover {
+    background: #52585f;
+}
+#cameraModal {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.75);
+    z-index: 999;
+    align-items: center;
+    justify-content: center;
+}
+#cameraModal.open {
+    display: flex;
+}
+.camera-box {
+    background: white;
+    padding: 16px;
+    border-radius: 14px;
+    width: 92%;
+    max-width: 480px;
+    text-align: center;
+}
+#cameraVideo {
+    width: 100%;
+    border-radius: 10px;
+    background: #000;
+}
+.camera-controls {
+    display: flex;
+    gap: 10px;
+    margin-top: 12px;
+}
+.camera-controls button {
+    margin-top: 0;
+}
+#photoPreview {
+    margin-top: 14px;
+    display: none;
+}
+#photoPreview img {
+    max-width: 100%;
+    border-radius: 10px;
+    border: 1px solid #ddd;
+}
+#photoPreview .remove-photo {
+    display: inline-block;
+    margin-top: 8px;
+    padding: 8px 14px;
+    background: #d93025;
+    color: white;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 14px;
+}
 @media (max-width: 600px) {
     .container {
         width: 94%;
@@ -955,18 +1029,98 @@ pre {
         <option value="detailed">Detailed</option>
         <option value="creative">Creative</option>
     </select>
+    <div class="camera-row">
+        <button onclick="openCamera()">📷 Take Photo</button>
+    </div>
+    <div id="photoPreview">
+        <img id="photoPreviewImg" src="" alt="Captured photo">
+        <div class="remove-photo" onclick="removePhoto()">Remove Photo</div>
+    </div>
     <button onclick="askAtlas()">COMPARE AI MODELS</button>
     <div id="loading">Comparing AI models...</div>
     <div id="result"></div>
 </div>
 <div class="footer">Project Atlas • AI Comparison</div>
+
+<div id="cameraModal">
+    <div class="camera-box">
+        <video id="cameraVideo" autoplay playsinline></video>
+        <canvas id="cameraCanvas" style="display:none;"></canvas>
+        <div class="camera-controls">
+            <button onclick="capturePhoto()">📸 Capture</button>
+            <button class="secondary" onclick="closeCamera()">Cancel</button>
+        </div>
+    </div>
+</div>
+
 <script>
+let capturedImage = "";
+let cameraStream = null;
+
+async function openCamera() {
+    const modal = document.getElementById("cameraModal");
+    const video = document.getElementById("cameraVideo");
+
+    try {
+        cameraStream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: "environment" },
+            audio: false
+        });
+        video.srcObject = cameraStream;
+        modal.classList.add("open");
+    } catch (error) {
+        console.error("Camera error:", error);
+        alert("Could not access the camera. Please check permissions and try again.");
+    }
+}
+
+function closeCamera() {
+    const modal = document.getElementById("cameraModal");
+    const video = document.getElementById("cameraVideo");
+
+    if (cameraStream) {
+        cameraStream.getTracks().forEach(track => track.stop());
+        cameraStream = null;
+    }
+
+    video.srcObject = null;
+    modal.classList.remove("open");
+}
+
+function capturePhoto() {
+    const video = document.getElementById("cameraVideo");
+    const canvas = document.getElementById("cameraCanvas");
+
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+
+    const context = canvas.getContext("2d");
+    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+    capturedImage = canvas.toDataURL("image/jpeg", 0.85);
+
+    const preview = document.getElementById("photoPreview");
+    const previewImg = document.getElementById("photoPreviewImg");
+    previewImg.src = capturedImage;
+    preview.style.display = "block";
+
+    closeCamera();
+}
+
+function removePhoto() {
+    capturedImage = "";
+    const preview = document.getElementById("photoPreview");
+    const previewImg = document.getElementById("photoPreviewImg");
+    previewImg.src = "";
+    preview.style.display = "none";
+}
+
 async function askAtlas() {
     const questionElement = document.getElementById("question");
     const styleElement = document.getElementById("style");
     const result = document.getElementById("result");
     const loading = document.getElementById("loading");
-    const button = document.querySelector("button");
+    const button = document.querySelector(".container > button");
 
     const question = questionElement ? questionElement.value.trim() : "";
     const style = styleElement ? styleElement.value : "balanced";
@@ -994,7 +1148,7 @@ async function askAtlas() {
             },
             body: JSON.stringify({
                 question: question,
-                image: "",
+                image: capturedImage,
                 style: style
             })
         });
