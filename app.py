@@ -798,38 +798,38 @@ body {{
 @login_required
 def home():
     username = session.get("username", "")
-    return f"""
+    html = """
 <!DOCTYPE html>
 <html>
 <head>
 <title>Project Atlas - AI Comparison</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
-body {{
+body {
     margin: 0;
     font-family: Arial, sans-serif;
     background: #f4f7fb;
-}}
-.header {{
+}
+.header {
     background: #1769ff;
     color: white;
     padding: 30px;
     text-align: center;
-}}
-.header h1 {{
+}
+.header h1 {
     margin: 0;
     font-size: 34px;
-}}
-.header p {{
+}
+.header p {
     margin: 10px 0 0;
     font-size: 18px;
-}}
-.container {{
+}
+.container {
     max-width: 900px;
     margin: 30px auto;
     padding: 20px;
-}}
-textarea {{
+}
+textarea {
     width: 100%;
     height: 120px;
     padding: 15px;
@@ -838,15 +838,15 @@ textarea {{
     border-radius: 12px;
     box-sizing: border-box;
     resize: vertical;
-}}
-.style-label {{
+}
+.style-label {
     display: block;
     margin-top: 20px;
     margin-bottom: 8px;
     font-size: 17px;
     font-weight: bold;
-}}
-select {{
+}
+select {
     width: 100%;
     padding: 14px;
     font-size: 16px;
@@ -854,8 +854,8 @@ select {{
     border-radius: 10px;
     background: white;
     box-sizing: border-box;
-}}
-button {{
+}
+button {
     width: 100%;
     margin-top: 18px;
     padding: 15px;
@@ -866,75 +866,75 @@ button {{
     border: none;
     border-radius: 10px;
     cursor: pointer;
-}}
-button:hover {{
+}
+button:hover {
     background: #0d55d9;
-}}
-#loading {{
+}
+#loading {
     display: none;
     text-align: center;
     margin: 25px;
     font-size: 18px;
     font-weight: bold;
-}}
-#result {{
+}
+#result {
     margin-top: 30px;
-}}
-.compare-grid {{
+}
+.compare-grid {
     display: grid;
     grid-template-columns: 1fr;
     gap: 20px;
-}}
-.ai-card {{
+}
+.ai-card {
     background: white;
     padding: 20px;
     border-radius: 14px;
     box-shadow: 0 3px 12px rgba(0,0,0,0.08);
     border-left: 5px solid #1769ff;
-}}
-.ai-card h2 {{
+}
+.ai-card h2 {
     margin-top: 0;
     margin-bottom: 15px;
     font-size: 22px;
-}}
-.ai-answer {{
+}
+.ai-answer {
     overflow-x: auto;
-}}
-pre {{
+}
+pre {
     white-space: pre-wrap;
     word-wrap: break-word;
     font-family: Arial, sans-serif;
     font-size: 16px;
     line-height: 1.6;
     margin: 0;
-}}
-.card {{
+}
+.card {
     background: white;
     padding: 20px;
     border-radius: 12px;
     box-shadow: 0 2px 10px rgba(0,0,0,0.08);
-}}
-.footer {{
+}
+.footer {
     text-align: center;
     color: #777;
     margin: 30px;
-}}
-@media (max-width: 600px) {{
-    .container {{
+}
+@media (max-width: 600px) {
+    .container {
         width: 94%;
         margin: 20px auto;
         padding: 10px;
-    }}
-    .header h1 {{
+    }
+    .header h1 {
         font-size: 28px;
-    }}
-    textarea {{
+    }
+    textarea {
         height: 120px;
-    }}
-    button {{
+    }
+    button {
         font-size: 16px;
-    }}
-}}
+    }
+}
 </style>
 </head>
 <body>
@@ -942,7 +942,7 @@ pre {{
     <h1>PROJECT ATLAS</h1>
     <p>AI COMPARISON</p>
     <p>
-        Signed in as {escape(username)} |
+        Signed in as __USERNAME__ |
         <a href="/logout" style="color: white;">Logout</a>
     </p>
 </div>
@@ -1027,6 +1027,7 @@ async function askAtlas() {
 </body>
 </html>
 """
+    return html.replace("__USERNAME__", escape(username))
 
 
 # ============================================================
