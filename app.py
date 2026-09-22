@@ -9,7 +9,8 @@ from flask import (
 from flask_cors import CORS
 import requests
 import os
-import sqlite3
+import psycopg2
+import psycopg2.extras
 import base64
 from html import escape
 from functools import wraps
@@ -20,25 +21,46 @@ CORS(app)
 
 app.secret_key = os.getenv("SECRET_KEY", "change-this-secret-key")
 
-DATABASE = "users.db"
+# Render's Postgres add-on provides this env var automatically once the
+# database is created and linked to the web service. Locally, set it
+# yourself, e.g.:
+#   export DATABASE_URL=postgresql://user:password@localhost:5432/atlas
+DATABASE_URL = os.getenv("DATABASE_URL")
+
+if not DATABASE_URL:
+    raise RuntimeError(
+        "DATABASE_URL is not set. Add a PostgreSQL database on Render "
+        "(or point this at your own Postgres instance) and set "
+        "DATABASE_URL before starting the app."
+    )
+
+# Some providers (Render included, historically) hand out URLs starting
+# with "postgres://", but psycopg2/SQLAlchemy-style URLs expect
+# "postgresql://". Normalize it so either form works.
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
 
 def get_db_connection():
-    connection = sqlite3.connect(DATABASE)
-    connection.row_factory = sqlite3.Row
+    connection = psycopg2.connect(
+        DATABASE_URL,
+        cursor_factory=psycopg2.extras.RealDictCursor
+    )
     return connection
 
 
 def initialize_database():
     connection = get_db_connection()
-    connection.execute("""
+    cursor = connection.cursor()
+    cursor.execute("""
         CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             username TEXT UNIQUE NOT NULL,
             password TEXT NOT NULL
         )
     """)
     connection.commit()
+    cursor.close()
     connection.close()
 
 
@@ -452,10 +474,13 @@ def login():
         password = request.form.get("password", "")
 
         connection = get_db_connection()
-        user = connection.execute(
-            "SELECT * FROM users WHERE username = ?",
+        cursor = connection.cursor()
+        cursor.execute(
+            "SELECT * FROM users WHERE username = %s",
             (username,)
-        ).fetchone()
+        )
+        user = cursor.fetchone()
+        cursor.close()
         connection.close()
 
         if user and check_password_hash(user["password"], password):
@@ -567,20 +592,24 @@ def signup():
 
         hashed_password = generate_password_hash(password)
         connection = get_db_connection()
+        cursor = connection.cursor()
 
         try:
-            connection.execute(
+            cursor.execute(
                 """
                 INSERT INTO users (username, password)
-                VALUES (?, ?)
+                VALUES (%s, %s)
                 """,
                 (username, hashed_password)
             )
             connection.commit()
+            cursor.close()
             connection.close()
             return redirect(url_for("login"))
 
-        except sqlite3.IntegrityError:
+        except psycopg2.errors.UniqueViolation:
+            connection.rollback()
+            cursor.close()
             connection.close()
             return """
             <h2>That username already exists.</h2>
