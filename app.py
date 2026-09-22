@@ -66,6 +66,56 @@ ANTHROPIC_KEY = os.getenv("ANTHROPIC_KEY")
 
 
 # ============================================================
+# CONVERSATION MEMORY (in-memory, per logged-in user)
+# ============================================================
+# Note: this resets whenever the server restarts, and won't be
+# shared across multiple worker processes. Good enough for a
+# per-session "remember our chat" feature; swap for a database
+# table keyed by user_id if you need it to persist long-term.
+
+CONVERSATION_MEMORY = {}
+MAX_MEMORY_TURNS = 6
+MAX_STORED_ANSWER_CHARS = 600
+
+
+def get_memory(user_id):
+    return CONVERSATION_MEMORY.get(user_id, [])
+
+
+def add_memory_turn(user_id, question, answers):
+    history = CONVERSATION_MEMORY.setdefault(user_id, [])
+    history.append({
+        "question": question,
+        "chatgpt": answers.get("chatgpt", "")[:MAX_STORED_ANSWER_CHARS],
+        "gemini": answers.get("gemini", "")[:MAX_STORED_ANSWER_CHARS],
+        "groq": answers.get("groq", "")[:MAX_STORED_ANSWER_CHARS],
+        "claude": answers.get("claude", "")[:MAX_STORED_ANSWER_CHARS],
+    })
+    CONVERSATION_MEMORY[user_id] = history[-MAX_MEMORY_TURNS:]
+
+
+def build_prompt_with_memory(user_id, model_key, question, memory_enabled):
+    if not memory_enabled:
+        return question
+
+    history = get_memory(user_id)
+
+    if not history:
+        return question
+
+    lines = ["Here is our conversation so far. Use it as context for the new question.\n"]
+
+    for turn in history:
+        lines.append(f"Previous question: {turn['question']}")
+        lines.append(f"Previous answer: {turn.get(model_key, '')}")
+        lines.append("")
+
+    lines.append(f"New question: {question}")
+
+    return "\n".join(lines)
+
+
+# ============================================================
 # HELPER
 # ============================================================
 
@@ -618,6 +668,30 @@ def logout():
 
 
 # ============================================================
+# MEMORY CONTROLS
+# ============================================================
+
+@app.route("/memory/toggle", methods=["POST"])
+@login_required
+def toggle_memory():
+    current = session.get("memory_enabled", False)
+    session["memory_enabled"] = not current
+    return jsonify({
+        "memory_enabled": session["memory_enabled"]
+    })
+
+
+@app.route("/memory/clear", methods=["POST"])
+@login_required
+def clear_memory():
+    user_id = session["user_id"]
+    CONVERSATION_MEMORY[user_id] = []
+    return jsonify({
+        "cleared": True
+    })
+
+
+# ============================================================
 # SINGLE MODEL
 # ============================================================
 
@@ -681,23 +755,31 @@ def compare():
             "error": "Question is empty."
         }), 400
 
+    user_id = session["user_id"]
+    memory_enabled = session.get("memory_enabled", False)
+
+    prompt_for_chatgpt = build_prompt_with_memory(user_id, "chatgpt", question, memory_enabled)
+    prompt_for_gemini = build_prompt_with_memory(user_id, "gemini", question, memory_enabled)
+    prompt_for_groq = build_prompt_with_memory(user_id, "groq", question, memory_enabled)
+    prompt_for_claude = build_prompt_with_memory(user_id, "claude", question, memory_enabled)
+
     try:
-        chatgpt = ask_openai(question)
+        chatgpt = ask_openai(prompt_for_chatgpt)
     except Exception as e:
         chatgpt = {"error": str(e)}
 
     try:
-        gemini = ask_gemini(question, image)
+        gemini = ask_gemini(prompt_for_gemini, image)
     except Exception as e:
         gemini = {"error": str(e)}
 
     try:
-        groq = ask_groq(question)
+        groq = ask_groq(prompt_for_groq)
     except Exception as e:
         groq = {"error": str(e)}
 
     try:
-        claude = ask_claude(question)
+        claude = ask_claude(prompt_for_claude)
     except Exception as e:
         claude = {"error": str(e)}
 
@@ -705,6 +787,14 @@ def compare():
     gemini_text = get_text(gemini)
     groq_text = get_text(groq)
     claude_text = get_text(claude)
+
+    if memory_enabled:
+        add_memory_turn(user_id, question, {
+            "chatgpt": chatgpt_text,
+            "gemini": gemini_text,
+            "groq": groq_text,
+            "claude": claude_text,
+        })
 
     return f"""
 <!DOCTYPE html>
@@ -798,6 +888,8 @@ body {{
 @login_required
 def home():
     username = session.get("username", "")
+    memory_enabled = session.get("memory_enabled", False)
+    memory_label = "🧠 Memory: ON" if memory_enabled else "🧠 Memory: OFF"
     html = """
 <!DOCTYPE html>
 <html>
@@ -941,6 +1033,32 @@ pre {
 .camera-row .secondary:hover {
     background: #52585f;
 }
+.camera-row .memory-off {
+    background: #8b5cf6;
+}
+.camera-row .memory-off:hover {
+    background: #7443e0;
+}
+.camera-row .memory-on {
+    background: #059669;
+}
+.camera-row .memory-on:hover {
+    background: #047857;
+}
+.memory-clear-link {
+    display: none;
+    text-align: center;
+    margin-top: 8px;
+    font-size: 14px;
+}
+.memory-clear-link a {
+    color: #d93025;
+    cursor: pointer;
+    text-decoration: underline;
+}
+.memory-clear-link.visible {
+    display: block;
+}
 #cameraModal {
     display: none;
     position: fixed;
@@ -1031,6 +1149,10 @@ pre {
     </select>
     <div class="camera-row">
         <button onclick="openCamera()">📷 Take Photo</button>
+        <button id="memoryButton" class="__MEMORY_BUTTON_CLASS__" onclick="toggleMemory()">__MEMORY_LABEL__</button>
+    </div>
+    <div id="memoryClearLink" class="memory-clear-link __MEMORY_CLEAR_VISIBLE__">
+        <a onclick="clearMemory()">Clear conversation memory</a>
     </div>
     <div id="photoPreview">
         <img id="photoPreviewImg" src="" alt="Captured photo">
@@ -1115,6 +1237,48 @@ function removePhoto() {
     preview.style.display = "none";
 }
 
+async function toggleMemory() {
+    const memoryButton = document.getElementById("memoryButton");
+    const clearLink = document.getElementById("memoryClearLink");
+
+    try {
+        const response = await fetch("/memory/toggle", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" }
+        });
+
+        const data = await response.json();
+
+        if (data.memory_enabled) {
+            memoryButton.innerText = "🧠 Memory: ON";
+            memoryButton.classList.remove("memory-off");
+            memoryButton.classList.add("memory-on");
+            clearLink.classList.add("visible");
+        } else {
+            memoryButton.innerText = "🧠 Memory: OFF";
+            memoryButton.classList.remove("memory-on");
+            memoryButton.classList.add("memory-off");
+            clearLink.classList.remove("visible");
+        }
+    } catch (error) {
+        console.error("Memory toggle error:", error);
+        alert("Could not update memory setting. Please try again.");
+    }
+}
+
+async function clearMemory() {
+    try {
+        await fetch("/memory/clear", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" }
+        });
+        alert("Conversation memory cleared.");
+    } catch (error) {
+        console.error("Memory clear error:", error);
+        alert("Could not clear memory. Please try again.");
+    }
+}
+
 async function askAtlas() {
     const questionElement = document.getElementById("question");
     const styleElement = document.getElementById("style");
@@ -1181,7 +1345,15 @@ async function askAtlas() {
 </body>
 </html>
 """
-    return html.replace("__USERNAME__", escape(username))
+    memory_button_class = "memory-on" if memory_enabled else "memory-off"
+    memory_clear_visible = "visible" if memory_enabled else ""
+
+    html = html.replace("__USERNAME__", escape(username))
+    html = html.replace("__MEMORY_LABEL__", memory_label)
+    html = html.replace("__MEMORY_BUTTON_CLASS__", memory_button_class)
+    html = html.replace("__MEMORY_CLEAR_VISIBLE__", memory_clear_visible)
+
+    return html
 
 
 # ============================================================
