@@ -9,8 +9,8 @@ from flask import (
 from flask_cors import CORS
 import requests
 import os
-import psycopg2
-import psycopg2.extras
+import psycopg
+import psycopg.rows
 import base64
 from html import escape
 from functools import wraps
@@ -35,16 +35,16 @@ if not DATABASE_URL:
     )
 
 # Some providers (Render included, historically) hand out URLs starting
-# with "postgres://", but psycopg2/SQLAlchemy-style URLs expect
+# with "postgres://", but psycopg/SQLAlchemy-style URLs expect
 # "postgresql://". Normalize it so either form works.
 if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
 
 def get_db_connection():
-    connection = psycopg2.connect(
+    connection = psycopg.connect(
         DATABASE_URL,
-        cursor_factory=psycopg2.extras.RealDictCursor
+        row_factory=psycopg.rows.dict_row
     )
     return connection
 
@@ -607,7 +607,7 @@ def signup():
             connection.close()
             return redirect(url_for("login"))
 
-        except psycopg2.errors.UniqueViolation:
+        except psycopg.errors.UniqueViolation:
             connection.rollback()
             cursor.close()
             connection.close()
